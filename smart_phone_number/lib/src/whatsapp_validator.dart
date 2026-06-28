@@ -1,5 +1,4 @@
 import 'package:url_launcher/url_launcher.dart';
-import 'package:phone_number/phone_number.dart';
 import 'phone_detector.dart';
 import 'country_data.dart';
 import 'models/phone_result.dart';
@@ -19,7 +18,7 @@ class WhatsAppValidator {
     if (cleaned.startsWith('+')) {
       bool exists = await _checkWhatsApp(cleaned);
       if (exists) {
-        String? regionCode = await _getRegionCode(cleaned);
+        String? regionCode = _getRegionCodeFromNumber(cleaned);
         String? countryCode = await _getCountryCodeFromRegion(regionCode);
         return PhoneResult.success(
           cleaned,
@@ -30,7 +29,7 @@ class WhatsAppValidator {
       return PhoneResult.failure(cleaned, 'No WhatsApp account found');
     }
 
-    // **التعديل الأساسي: استخدم detectBestCountry بدلاً من detectPossibleCountries**
+    // ** استخدام detectBestCountry بدلاً من detectPossibleCountries**
     CountryData? bestCountry = await PhoneDetector.detectBestCountry(cleaned);
 
     if (bestCountry == null) {
@@ -71,28 +70,6 @@ class WhatsAppValidator {
     } catch (e) {
       return false;
     }
-  }
-
-  /// الحصول على رمز المنطقة من الرقم الدولي
-  static Future<String?> _getRegionCode(String internationalNumber) async {
-    try {
-      final phoneNumber = await PhoneNumberUtil().parse(internationalNumber);
-      return phoneNumber.regionCode;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  /// الحصول على مفتاح الدولة من رمز المنطقة
-  static Future<String?> _getCountryCodeFromRegion(String? regionCode) async {
-    if (regionCode == null) return null;
-
-    for (var country in CountryData.countries) {
-      if (country.region == regionCode) {
-        return country.code;
-      }
-    }
-    return null;
   }
 
   /// التحقق من وجود الرقم على واتساب مع تحديد مفتاح الدولة يدوياً
@@ -193,5 +170,88 @@ class WhatsAppValidator {
       cleaned,
       'No WhatsApp account found for this number with country code $customCountryCode',
     );
+  }
+
+  /// تستنتج رمز المنطقة من الرقم الدولي باستخدام البيانات الموجودة
+  static String? _getRegionCodeFromNumber(String internationalNumber) {
+    // تنظيف الرقم من علامة +
+    String number = internationalNumber.replaceFirst('+', '');
+
+    // ترتيب الدول حسب طول المفتاح (تنازلياً) للتأكد من مطابقة أطول مفتاح أولاً
+    List<CountryData> sortedCountries = List.from(CountryData.countries)
+      ..sort((a, b) => b.code.length.compareTo(a.code.length));
+
+    // محاولة مطابقة مفتاح الدولة مع الرقم
+    for (var country in sortedCountries) {
+      if (number.startsWith(country.code)) {
+        // التأكد من أن طول الرقم مناسب للدولة
+        String numberWithoutCode = number.substring(country.code.length);
+        if (numberWithoutCode.length >= country.minLength &&
+            numberWithoutCode.length <= country.maxLength) {
+          return country.region;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /// الحصول على مفتاح الدولة من رمز المنطقة
+  static Future<String?> _getCountryCodeFromRegion(String? regionCode) async {
+    if (regionCode == null) return null;
+
+    for (var country in CountryData.countries) {
+      if (country.region == regionCode) {
+        return country.code;
+      }
+    }
+    return null;
+  }
+
+  /// دالة مساعدة للتحقق من صحة الرقم الدولي
+  static bool isValidInternationalNumber(String number) {
+    String cleaned = PhoneDetector.cleanNumber(number);
+    if (!cleaned.startsWith('+')) return false;
+
+    String numberWithoutPlus = cleaned.substring(1);
+
+    // ترتيب الدول حسب طول المفتاح (تنازلياً)
+    List<CountryData> sortedCountries = List.from(CountryData.countries)
+      ..sort((a, b) => b.code.length.compareTo(a.code.length));
+
+    for (var country in sortedCountries) {
+      if (numberWithoutPlus.startsWith(country.code)) {
+        String numberWithoutCode = numberWithoutPlus.substring(
+          country.code.length,
+        );
+        if (numberWithoutCode.length >= country.minLength &&
+            numberWithoutCode.length <= country.maxLength) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /// دالة مساعدة للحصول على معلومات الدولة من رقم دولي
+  static CountryData? getCountryFromInternationalNumber(
+    String internationalNumber,
+  ) {
+    String number = internationalNumber.replaceFirst('+', '');
+
+    // ترتيب الدول حسب طول المفتاح (تنازلياً)
+    List<CountryData> sortedCountries = List.from(CountryData.countries)
+      ..sort((a, b) => b.code.length.compareTo(a.code.length));
+
+    for (var country in sortedCountries) {
+      if (number.startsWith(country.code)) {
+        String numberWithoutCode = number.substring(country.code.length);
+        if (numberWithoutCode.length >= country.minLength &&
+            numberWithoutCode.length <= country.maxLength) {
+          return country;
+        }
+      }
+    }
+    return null;
   }
 }
